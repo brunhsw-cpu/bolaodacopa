@@ -1,11 +1,6 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
-
-// Resolving __dirname for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3000;
@@ -145,7 +140,6 @@ app.post('/api/admin/sync', async (req, res) => {
   }
   
   try {
-    // Integração real com a API-Football usando a chave
     let response = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026', {
       method: 'GET',
       headers: {
@@ -154,7 +148,6 @@ app.post('/api/admin/sync', async (req, res) => {
     });
     let data = await response.json();
 
-    // Se 2026 ainda não tiver jogos registrados na API, busca 2022 para você testar
     if (data.response && data.response.length === 0) {
       response = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2022', {
         method: 'GET',
@@ -169,8 +162,6 @@ app.post('/api/admin/sync', async (req, res) => {
 
     const is2022Fallback = data.parameters?.season === '2022';
     
-    // Atualiza os jogos no sistema com a resposta da API 
-    // (Pegando os 10 primeiros para não poluir muito a tela no teste)
     if (data.response && data.response.length > 0) {
       const parsedMatches = data.response.slice(0, 10).map((r: any) => ({
         id: r.fixture.id.toString(),
@@ -184,10 +175,7 @@ app.post('/api/admin/sync', async (req, res) => {
         status: is2022Fallback ? 'pending' : (['FT', 'AET', 'PEN'].includes(r.fixture.status.short) ? 'finished' : 'pending')
       }));
 
-      // Substitui os jogos mockados pelos jogos reais
       state.matches = parsedMatches;
-      
-      // Recalcula pontos caso algum jogo agora esteja como finalizado
       updateRanking();
       saveState();
     }
