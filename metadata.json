@@ -1,0 +1,6 @@
+{
+  "name": "Bolão da Copa",
+  "description": "App completo para gerenciar apostas da Copa com os amigos, ranking de pontos automático e placares.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
