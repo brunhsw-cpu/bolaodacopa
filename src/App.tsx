@@ -76,6 +76,7 @@ export default function App() {
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [newRoomPassword, setNewRoomPassword] = useState('');
+  const [newApiKey, setNewApiKey] = useState('');
 
   useEffect(() => {
     refreshState().then(() => setIsLoading(false));
@@ -272,13 +273,49 @@ export default function App() {
                       {state.apiConfigured ? 'API Ativa' : 'API Ausente'}
                     </span>
                   </div>
+                  
+                  <div className="flex flex-col gap-2 mb-2">
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={newApiKey}
+                        onChange={(e) => setNewApiKey(e.target.value)}
+                        placeholder="Cole sua API Key aqui"
+                        className="flex-1 bg-zinc-950 border border-zinc-800 px-4 py-3 font-mono text-sm focus:outline-none focus:border-yellow-400 placeholder:text-zinc-600"
+                      />
+                      <button 
+                        onClick={async () => {
+                          if (!newApiKey.trim()) return;
+                          try {
+                            await fetch('/api/admin/change-apikey', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ newApiKey: newApiKey.trim() })
+                            });
+                            alert("API Key configurada com sucesso!");
+                            setNewApiKey('');
+                            await refreshState();
+                          } catch(e:any) {
+                            alert("Erro: " + e.message);
+                          }
+                        }}
+                        className="bg-yellow-400 hover:bg-white text-black font-black uppercase tracking-wider text-xs px-4 transition-colors"
+                      >
+                        Salvar
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider text-left">
+                      Acesse o menu <b>Account/Profile</b> (geralmente no canto superior direito) no seu painel da API-Football para copiar sua <b>API Key</b>.
+                    </p>
+                  </div>
+
                   <button 
                     disabled={isSyncing}
                     onClick={async () => {
                       setIsSyncing(true);
                       try {
                         const res = await syncAPI();
-                        await refreshState(); // Recarrega os jogos populados para atualizar a tela
+                        await refreshState();
                         alert(res.message);
                       } catch(e:any) {
                         alert("Erro: " + e.message);
@@ -290,9 +327,6 @@ export default function App() {
                   >
                     {isSyncing ? "Sincronizando..." : "Sincronizar Jogos Agora"}
                   </button>
-                  <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider text-center">
-                    Acesse o menu <b>Account/Profile</b> (geralmente no canto superior direito) no seu painel da API-Football para copiar sua <b>API Key</b>.
-                  </p>
                 </div>
 
                 <div className="bg-zinc-900 border border-zinc-800 p-4 sm:p-5 flex flex-col gap-4 mb-6">
@@ -418,7 +452,7 @@ function RoomAuthView({ onAuthenticated }: { onAuthenticated: () => void }) {
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
-      <motion.div initial={{opacity:0, scale:0.95}} animate={{opacity:1, scale:1}} className="max-w-md w-full">
+      <div className="max-w-md w-full">
         <div className="text-center mb-10">
            <img src="https://upload.wikimedia.org/wikipedia/pt/b/b4/Corinthians_simbolo.png" alt="Corinthians" className="w-16 h-16 mx-auto mb-4 object-contain" />
            <h1 className="text-3xl font-black italic text-white tracking-tighter mb-2 flex flex-col items-center">
@@ -449,7 +483,7 @@ function RoomAuthView({ onAuthenticated }: { onAuthenticated: () => void }) {
              {loading ? 'Verificando...' : 'Entrar na Sala'} <LogIn className="w-4 h-4"/>
            </button>
         </form>
-      </motion.div>
+      </div>
     </div>
   )
 }
@@ -468,7 +502,7 @@ function LoginView({ onLogin }: { onLogin: (user: User) => void }) {
 
   return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
-      <motion.div initial={{opacity:0, scale:0.95}} animate={{opacity:1, scale:1}} className="bg-zinc-900 border border-zinc-800 w-full max-w-sm p-8 relative overflow-hidden">
+      <div className="bg-zinc-900 border border-zinc-800 w-full max-w-sm p-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-2 bg-yellow-400" />
         
         <div className="w-16 h-16 bg-zinc-950 border border-zinc-800 flex items-center justify-center mb-6 text-black p-2">
@@ -503,12 +537,12 @@ function LoginView({ onLogin }: { onLogin: (user: User) => void }) {
           </button>
         </form>
         <p className="text-center mt-6 text-xs text-zinc-500 font-bold uppercase tracking-wider">100 pts: Exato • 80 pts: Saldo • 50 pts: Vencedor</p>
-      </motion.div>
+      </div>
     </div>
   )
 }
 
-function MatchCard({ match, prediction, onSavePrediction }: { match: Match, prediction?: Prediction, onSavePrediction: (h: number, a: number) => void }) {
+const MatchCard: React.FC<{ match: Match, prediction?: Prediction, onSavePrediction: (h: number, a: number) => void }> = ({ match, prediction, onSavePrediction }) => {
   const isPending = match.status === 'pending';
   const matchDate = new Date(match.date);
   const matchTime = matchDate.getTime();
@@ -630,7 +664,7 @@ function MatchCard({ match, prediction, onSavePrediction }: { match: Match, pred
   )
 }
 
-function AdminMatchCard({ match, onSendResult }: { match: Match, onSendResult: (h: number, a: number) => void }) {
+const AdminMatchCard: React.FC<{ match: Match, onSendResult: (h: number, a: number) => void }> = ({ match, onSendResult }) => {
   const [hScore, setHScore] = useState<string>('0');
   const [aScore, setAScore] = useState<string>('0');
 

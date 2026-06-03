@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -40,6 +43,7 @@ interface Prediction {
 
 let state = {
   customRoomPassword: '',
+  footballApiKey: '',
   users: [] as User[],
   matches: [
     { id: 'm1', homeTeam: 'Brasil', awayTeam: 'Sérvia', homeFlag: '🇧🇷', awayFlag: '🇷🇸', date: new Date(Date.now() + 86400000).toISOString(), homeScore: null, awayScore: null, status: 'pending' },
@@ -111,7 +115,7 @@ const updateRanking = () => {
 app.get('/api/state', (req, res) => {
   res.json({
     ...state,
-    apiConfigured: !!process.env.FOOTBALL_API_KEY
+    apiConfigured: !!(state.footballApiKey || process.env.FOOTBALL_API_KEY)
   });
 });
 
@@ -133,35 +137,58 @@ app.post('/api/admin/change-password', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/admin/sync', async (req, res) => {
-  const apiKey = process.env.FOOTBALL_API_KEY;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'Chave ausente. Configure FOOTBALL_API_KEY no menu de Secrets para buscar dados reais da API-Football.' });
-  }
-  
-  try {
-    let response = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026', {
-      method: 'GET',
-      headers: {
-        'x-apisports-key': apiKey
-      }
-    });
-    let data = await response.json();
+app.post('/api/admin/change-apikey', (req, res) => {
+  const { newApiKey } = req.body;
+  state.footballApiKey = newApiKey;
+  saveState();
+  res.json({ success: true });
+});
 
-    if (data.response && data.response.length === 0) {
-      response = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2022', {
+app.post('/api/admin/sync', async (req, res) => {
+  const apiKey = state.footballApiKey || process.env.FOOTBALL_API_KEY;
+  
+  let data;
+  let isDemo = false;
+
+  try {
+    if (!apiKey) {
+      // Se não tem chave, usar dados simulados em vez de dar erro
+      isDemo = true;
+      data = {
+        response: [
+          { fixture: { id: 1001, date: new Date(Date.now() + 86400000).toISOString(), status: { short: 'NS' } }, teams: { home: { name: 'Brasil', logo: '🇧🇷' }, away: { name: 'Espanha', logo: '🇪🇸' } }, goals: { home: null, away: null } },
+          { fixture: { id: 1002, date: new Date(Date.now() + 172800000).toISOString(), status: { short: 'NS' } }, teams: { home: { name: 'Argentina', logo: '🇦🇷' }, away: { name: 'Alemanha', logo: '🇩🇪' } }, goals: { home: null, away: null } },
+          { fixture: { id: 1003, date: new Date(Date.now() + 259200000).toISOString(), status: { short: 'NS' } }, teams: { home: { name: 'França', logo: '🇫🇷' }, away: { name: 'Inglaterra', logo: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' } }, goals: { home: null, away: null } }
+        ]
+      };
+    } else {
+      // Integração real com a API-Football usando a chave
+      let response = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026', {
         method: 'GET',
-        headers: { 'x-apisports-key': apiKey }
+        headers: {
+          'x-apisports-key': apiKey
+        }
       });
       data = await response.json();
-    }
 
-    if (data.errors && Object.keys(data.errors).length > 0) {
-       return res.status(400).json({ error: 'Erro na API-Football: ' + Object.values(data.errors)[0] });
+      // Se 2026 ainda não tiver jogos registrados na API, busca 2022 para você testar
+      if (data.response && data.response.length === 0) {
+        response = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2022', {
+          method: 'GET',
+          headers: { 'x-apisports-key': apiKey }
+        });
+        data = await response.json();
+      }
+
+      if (data.errors && Object.keys(data.errors).length > 0) {
+         return res.status(400).json({ error: 'Erro na API-Football: ' + Object.values(data.errors)[0] });
+      }
     }
 
     const is2022Fallback = data.parameters?.season === '2022';
     
+    // Atualiza os jogos no sistema com a resposta da API 
+    // (Pegando os 10 primeiros para não poluir muito a tela no teste)
     if (data.response && data.response.length > 0) {
       const parsedMatches = data.response.slice(0, 10).map((r: any) => ({
         id: r.fixture.id.toString(),
@@ -170,24 +197,28 @@ app.post('/api/admin/sync', async (req, res) => {
         homeFlag: r.teams.home.logo || '⚽',
         awayFlag: r.teams.away.logo || '⚽',
         date: r.fixture.date,
-        homeScore: is2022Fallback ? null : (r.goals?.home ?? null),
-        awayScore: is2022Fallback ? null : (r.goals?.away ?? null),
-        status: is2022Fallback ? 'pending' : (['FT', 'AET', 'PEN'].includes(r.fixture.status.short) ? 'finished' : 'pending')
+        homeScore: (is2022Fallback || isDemo) ? null : (r.goals?.home ?? null),
+        awayScore: (is2022Fallback || isDemo) ? null : (r.goals?.away ?? null),
+        status: (is2022Fallback || isDemo) ? 'pending' : (['FT', 'AET', 'PEN'].includes(r.fixture.status.short) ? 'finished' : 'pending')
       }));
 
+      // Substitui os jogos mockados pelos jogos reais ou demo
       state.matches = parsedMatches;
+      
+      // Recalcula pontos caso algum jogo agora esteja como finalizado
       updateRanking();
       saveState();
     }
 
     res.json({ 
       success: true, 
-      message: `Conexão bem-sucedida! Foram carregados ${data.response?.length > 10 ? 10 : data.response?.length || 0} jogos para teste.` +
-               (is2022Fallback ? ' (Mostrando Copa de 2022 pois 2026 ainda não iniciou).' : '')
+      message: isDemo ? 'Jogos de demonstração carregados (Nenhuma API Key detectada).' : 
+               `Conexão bem-sucedida! Foram carregados ${data.response?.length > 10 ? 10 : data.response?.length || 0} jogos.` +
+               (is2022Fallback ? ' (Mostrando Copa 2022 pois 2026 não iniciou).' : '')
     });
 
   } catch (error: any) {
-    res.status(500).json({ error: 'Falha ao conectar com a API: ' + error.message });
+    res.status(500).json({ error: 'Falha ao processar: ' + error.message });
   }
 });
 
@@ -257,7 +288,8 @@ app.post('/api/admin/match', (req, res) => {
 
 // --- VITE MIDDLEWARE ---
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  const isProd = process.env.NODE_ENV === "production" || process.argv[1].endsWith('server.cjs') || __filename.endsWith('server.cjs');
+  if (!isProd) {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },

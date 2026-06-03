@@ -1,0 +1,117 @@
+{
+  "customRoomPassword": "",
+  "users": [],
+  "matches": [
+    {
+      "id": "855736",
+      "homeTeam": "Qatar",
+      "awayTeam": "Ecuador",
+      "homeFlag": "https://media.api-sports.io/football/teams/1569.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/2382.png",
+      "date": "2022-11-20T16:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "855735",
+      "homeTeam": "England",
+      "awayTeam": "Iran",
+      "homeFlag": "https://media.api-sports.io/football/teams/10.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/22.png",
+      "date": "2022-11-21T13:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "855734",
+      "homeTeam": "Senegal",
+      "awayTeam": "Netherlands",
+      "homeFlag": "https://media.api-sports.io/football/teams/13.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/1118.png",
+      "date": "2022-11-21T16:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "866681",
+      "homeTeam": "USA",
+      "awayTeam": "Wales",
+      "homeFlag": "https://media.api-sports.io/football/teams/2384.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/767.png",
+      "date": "2022-11-21T19:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "855737",
+      "homeTeam": "Argentina",
+      "awayTeam": "Saudi Arabia",
+      "homeFlag": "https://media.api-sports.io/football/teams/26.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/23.png",
+      "date": "2022-11-22T10:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "855738",
+      "homeTeam": "Denmark",
+      "awayTeam": "Tunisia",
+      "homeFlag": "https://media.api-sports.io/football/teams/21.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/28.png",
+      "date": "2022-11-22T13:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "855739",
+      "homeTeam": "Mexico",
+      "awayTeam": "Poland",
+      "homeFlag": "https://media.api-sports.io/football/teams/16.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/24.png",
+      "date": "2022-11-22T16:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "871850",
+      "homeTeam": "France",
+      "awayTeam": "Australia",
+      "homeFlag": "https://media.api-sports.io/football/teams/2.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/20.png",
+      "date": "2022-11-22T19:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "855740",
+      "homeTeam": "Morocco",
+      "awayTeam": "Croatia",
+      "homeFlag": "https://media.api-sports.io/football/teams/31.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/3.png",
+      "date": "2022-11-23T10:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    },
+    {
+      "id": "855741",
+      "homeTeam": "Germany",
+      "awayTeam": "Japan",
+      "homeFlag": "https://media.api-sports.io/football/teams/25.png",
+      "awayFlag": "https://media.api-sports.io/football/teams/12.png",
+      "date": "2022-11-23T13:00:00+00:00",
+      "homeScore": null,
+      "awayScore": null,
+      "status": "pending"
+    }
+  ],
+  "predictions": []
+}

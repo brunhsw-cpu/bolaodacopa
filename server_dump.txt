@@ -1,0 +1,304 @@
+1:import dotenv from "dotenv";
+2:dotenv.config();
+3:
+4:import express from "express";
+5:import path from "path";
+6:import fs from "fs";
+7:
+8:const app = express();
+9:const PORT = 3000;
+10:
+11:app.use(express.json());
+12:
+13:// --- IN-MEMORY/FILE DATABASE FOR PROTOTYPE ---
+14:const STATE_FILE = path.join(process.cwd(), 'data.json');
+15:
+16:interface User {
+17:  id: string;
+18:  name: string;
+19:  score: number;
+20:  isAdmin: boolean;
+21:}
+22:
+23:interface Match {
+24:  id: string;
+25:  homeTeam: string;
+26:  awayTeam: string;
+27:  homeFlag: string;
+28:  awayFlag: string;
+29:  date: string;
+30:  homeScore: number | null;
+31:  awayScore: number | null;
+32:  status: 'pending' | 'finished';
+33:}
+34:
+35:interface Prediction {
+36:  id: string;
+37:  userId: string;
+38:  matchId: string;
+39:  homeScore: number;
+40:  awayScore: number;
+41:  points: number | null;
+42:}
+43:
+44:let state = {
+45:  customRoomPassword: '',
+46:  users: [] as User[],
+47:  matches: [
+48:    { id: 'm1', homeTeam: 'Brasil', awayTeam: 'Sérvia', homeFlag: '🇧🇷', awayFlag: '🇷🇸', date: new Date(Date.now() + 86400000).toISOString(), homeScore: null, awayScore: null, status: 'pending' },
+49:    { id: 'm2', homeTeam: 'Argentina', awayTeam: 'França', homeFlag: '🇦🇷', awayFlag: '🇫🇷', date: new Date(Date.now() + 172800000).toISOString(), homeScore: null, awayScore: null, status: 'pending' },
+50:    { id: 'm3', homeTeam: 'Espanha', awayTeam: 'Alemanha', homeFlag: '🇪🇸', awayFlag: '🇩🇪', date: new Date(Date.now() + 259200000).toISOString(), homeScore: null, awayScore: null, status: 'pending' },
+51:  ] as Match[],
+52:  predictions: [] as Prediction[]
+53:};
+54:
+55:try {
+56:  if (fs.existsSync(STATE_FILE)) {
+57:    const data = fs.readFileSync(STATE_FILE, 'utf8');
+58:    const parsed = JSON.parse(data);
+59:    state = { ...state, ...parsed };
+60:    console.log("State loaded from data.json");
+61:  }
+62:} catch (e) {
+63:  console.error("Failed to load state", e);
+64:}
+65:
+66:const saveState = () => {
+67:  try {
+68:    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+69:  } catch (e) {
+70:    console.error("Failed to save state", e);
+71:  }
+72:};
+73:
+74:
+75:// --- SCORING LOGIC ---
+76:const calculatePoints = (predHome: number, predAway: number, matchHome: number, matchAway: number) => {
+77:  // 100 pontos para quem acertar o vitorioso e o placar
+78:  if (predHome === matchHome && predAway === matchAway) return 100;
+79:  
+80:  const predDiff = predHome - predAway;
+81:  const matchDiff = matchHome - matchAway;
+82:  
+83:  const predWinner = predDiff > 0 ? 'home' : (predDiff < 0 ? 'away' : 'tie');
+84:  const matchWinner = matchDiff > 0 ? 'home' : (matchDiff < 0 ? 'away' : 'tie');
+85:  
+86:  if (predWinner === matchWinner) {
+87:    // 80 pontos para quem acertar o vitorioso sem acertar o placar exato mas acertando o saldo (ex: aposta 2x0 mas deu 3x1)
+88:    if (predDiff === matchDiff) return 80;
+89:    
+90:    // 50 pontos para quem acertar somente o vitorioso ou um empate sem acertar os gols exatos ou o saldo
+91:    return 50;
+92:  }
+93:  
+94:  return 0;
+95:};
+96:
+97:const updateRanking = () => {
+98:  // Reset all scores
+99:  state.users.forEach(u => u.score = 0);
+100:  
+101:  state.predictions.forEach(p => {
+102:    if (p.points !== null) {
+103:      const user = state.users.find(u => u.id === p.userId);
+104:      if (user) user.score += p.points;
+105:    }
+106:  });
+107:
+108:  // Sort by score
+109:  state.users.sort((a, b) => b.score - a.score);
+110:};
+111:
+112:// --- API ROUTES ---
+113:
+114:app.get('/api/state', (req, res) => {
+115:  res.json({
+116:    ...state,
+117:    apiConfigured: !!process.env.FOOTBALL_API_KEY
+118:  });
+119:});
+120:
+121:app.post('/api/verify-room', (req, res) => {
+122:  const { password } = req.body;
+123:  // A senha padrão caso não seja configurada nas Secrets é "hexa2026"
+124:  const envPass = state.customRoomPassword || process.env.ROOM_PASSWORD || 'hexa2026';
+125:  if (password === envPass) {
+126:    res.json({ success: true });
+127:  } else {
+128:    res.status(401).json({ error: 'Senha incorreta para entrar na sala.' });
+129:  }
+130:});
+131:
+132:app.post('/api/admin/change-password', (req, res) => {
+133:  const { newPassword } = req.body;
+134:  state.customRoomPassword = newPassword;
+135:  saveState();
+136:  res.json({ success: true });
+137:});
+138:
+139:app.post('/api/admin/sync', async (req, res) => {
+140:  const apiKey = process.env.FOOTBALL_API_KEY;
+141:  
+142:  let data;
+143:  let isDemo = false;
+144:
+145:  try {
+146:    if (!apiKey) {
+147:      // Se não tem chave, usar dados simulados em vez de dar erro
+148:      isDemo = true;
+149:      data = {
+150:        response: [
+151:          { fixture: { id: 1001, date: new Date(Date.now() + 86400000).toISOString(), status: { short: 'NS' } }, teams: { home: { name: 'Brasil', logo: '🇧🇷' }, away: { name: 'Espanha', logo: '🇪🇸' } }, goals: { home: null, away: null } },
+152:          { fixture: { id: 1002, date: new Date(Date.now() + 172800000).toISOString(), status: { short: 'NS' } }, teams: { home: { name: 'Argentina', logo: '🇦🇷' }, away: { name: 'Alemanha', logo: '🇩🇪' } }, goals: { home: null, away: null } },
+153:          { fixture: { id: 1003, date: new Date(Date.now() + 259200000).toISOString(), status: { short: 'NS' } }, teams: { home: { name: 'França', logo: '🇫🇷' }, away: { name: 'Inglaterra', logo: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' } }, goals: { home: null, away: null } }
+154:        ]
+155:      };
+156:    } else {
+157:      // Integração real com a API-Football usando a chave
+158:      let response = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2026', {
+159:        method: 'GET',
+160:        headers: {
+161:          'x-apisports-key': apiKey
+162:        }
+163:      });
+164:      data = await response.json();
+165:
+166:      // Se 2026 ainda não tiver jogos registrados na API, busca 2022 para você testar
+167:      if (data.response && data.response.length === 0) {
+168:        response = await fetch('https://v3.football.api-sports.io/fixtures?league=1&season=2022', {
+169:          method: 'GET',
+170:          headers: { 'x-apisports-key': apiKey }
+171:        });
+172:        data = await response.json();
+173:      }
+174:
+175:      if (data.errors && Object.keys(data.errors).length > 0) {
+176:         return res.status(400).json({ error: 'Erro na API-Football: ' + Object.values(data.errors)[0] });
+177:      }
+178:    }
+179:
+180:    const is2022Fallback = data.parameters?.season === '2022';
+181:    
+182:    // Atualiza os jogos no sistema com a resposta da API 
+183:    // (Pegando os 10 primeiros para não poluir muito a tela no teste)
+184:    if (data.response && data.response.length > 0) {
+185:      const parsedMatches = data.response.slice(0, 10).map((r: any) => ({
+186:        id: r.fixture.id.toString(),
+187:        homeTeam: r.teams.home.name,
+188:        awayTeam: r.teams.away.name,
+189:        homeFlag: r.teams.home.logo || '⚽',
+190:        awayFlag: r.teams.away.logo || '⚽',
+191:        date: r.fixture.date,
+192:        homeScore: (is2022Fallback || isDemo) ? null : (r.goals?.home ?? null),
+193:        awayScore: (is2022Fallback || isDemo) ? null : (r.goals?.away ?? null),
+194:        status: (is2022Fallback || isDemo) ? 'pending' : (['FT', 'AET', 'PEN'].includes(r.fixture.status.short) ? 'finished' : 'pending')
+195:      }));
+196:
+197:      // Substitui os jogos mockados pelos jogos reais ou demo
+198:      state.matches = parsedMatches;
+199:      
+200:      // Recalcula pontos caso algum jogo agora esteja como finalizado
+201:      updateRanking();
+202:      saveState();
+203:    }
+204:
+205:    res.json({ 
+206:      success: true, 
+207:      message: isDemo ? 'Jogos de demonstração carregados (Nenhuma API Key detectada).' : 
+208:               `Conexão bem-sucedida! Foram carregados ${data.response?.length > 10 ? 10 : data.response?.length || 0} jogos.` +
+209:               (is2022Fallback ? ' (Mostrando Copa 2022 pois 2026 não iniciou).' : '')
+210:    });
+211:
+212:  } catch (error: any) {
+213:    res.status(500).json({ error: 'Falha ao processar: ' + error.message });
+214:  }
+215:});
+216:
+217:// Mock login (since we don't have true OAuth keys configured yet)
+218:app.post('/api/login', (req, res) => {
+219:  const { name } = req.body;
+220:  if (!name) return res.status(400).json({ error: 'Name is required' });
+221:  
+222:  let user = state.users.find(u => u.name.toLowerCase() === name.toLowerCase());
+223:  if (!user) {
+224:    const isFirstUser = state.users.length === 0;
+225:    user = { id: Date.now().toString(), name, score: 0, isAdmin: isFirstUser };
+226:    state.users.push(user);
+227:    saveState();
+228:  }
+229:  res.json({ user });
+230:});
+231:
+232:app.post('/api/predict', (req, res) => {
+233:  const { userId, matchId, homeScore, awayScore } = req.body;
+234:  const match = state.matches.find(m => m.id === matchId);
+235:  
+236:  if (!match) return res.status(404).json({ error: 'Match not found' });
+237:  if (match.status !== 'pending') return res.status(400).json({ error: 'Match already finished' });
+238:
+239:  if (Date.now() > new Date(match.date).getTime() - 20 * 60 * 1000) {
+240:    return res.status(400).json({ error: 'Tempo esgotado! Palpites fechados 20 min antes do jogo.' });
+241:  }
+242:
+243:  let pred = state.predictions.find(p => p.userId === userId && p.matchId === matchId);
+244:  
+245:  if (pred) {
+246:    pred.homeScore = homeScore;
+247:    pred.awayScore = awayScore;
+248:  } else {
+249:    pred = { id: Date.now().toString(), userId, matchId, homeScore, awayScore, points: null };
+250:    state.predictions.push(pred);
+251:  }
+252:  saveState();
+253:  res.json({ success: true, prediction: pred });
+254:});
+255:
+256:app.post('/api/admin/match', (req, res) => {
+257:  const { matchId, homeScore, awayScore } = req.body;
+258:  const match = state.matches.find(m => m.id === matchId);
+259:  if (!match) return res.status(404).json({ error: 'Match not found' });
+260:
+261:  // Update match
+262:  match.homeScore = homeScore;
+263:  match.awayScore = awayScore;
+264:  match.status = 'finished';
+265:
+266:  // Calculate points for all predictions for this match
+267:  state.predictions.forEach(p => {
+268:    if (p.matchId === matchId) {
+269:      p.points = calculatePoints(p.homeScore, p.awayScore, homeScore, awayScore);
+270:    }
+271:  });
+272:
+273:  // Update global leaderboard
+274:  updateRanking();
+275:  saveState();
+276:
+277:  res.json({ success: true, match });
+278:});
+279:
+280:
+281:// --- VITE MIDDLEWARE ---
+282:async function startServer() {
+283:  if (process.env.NODE_ENV !== "production") {
+284:    const { createServer: createViteServer } = await import("vite");
+285:    const vite = await createViteServer({
+286:      server: { middlewareMode: true },
+287:      appType: "spa",
+288:    });
+289:    app.use(vite.middlewares);
+290:  } else {
+291:    const distPath = path.join(process.cwd(), "dist");
+292:    app.use(express.static(distPath));
+293:    app.get("*", (req, res) => {
+294:      res.sendFile(path.join(distPath, "index.html"));
+295:    });
+296:  }
+297:
+298:  app.listen(PORT, "0.0.0.0", () => {
+299:    console.log(`Server running on http://localhost:${PORT}`);
+300:  });
+301:}
+302:
+303:startServer();
+304:

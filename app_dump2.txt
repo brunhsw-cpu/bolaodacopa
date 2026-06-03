@@ -1,0 +1,678 @@
+1:import React, { useState, useEffect } from 'react';
+2:import { Trophy, Calendar, Users, Settings, LogIn, ChevronRight, Check, Activity, Share2 } from 'lucide-react';
+3:import { motion, AnimatePresence } from 'motion/react';
+4:import { format } from 'date-fns';
+5:import { ptBR } from 'date-fns/locale';
+6:import { cn } from './lib/utils';
+7:import type { AppState, User, Match, Prediction } from './types';
+8:
+9:// --- MOCK API CALLS ---
+10:const fetchState = async (): Promise<AppState> => (await fetch('/api/state')).json();
+11:
+12:const loginUser = async (name: string): Promise<{user: User}> => {
+13:  const res = await fetch('/api/login', {
+14:    method: 'POST',
+15:    headers: { 'Content-Type': 'application/json' },
+16:    body: JSON.stringify({ name })
+17:  });
+18:  return res.json();
+19:};
+20:
+21:const sendPrediction = async (userId: string, matchId: string, homeScore: number, awayScore: number) => {
+22:  const res = await fetch('/api/predict', {
+23:    method: 'POST',
+24:    headers: { 'Content-Type': 'application/json' },
+25:    body: JSON.stringify({ userId, matchId, homeScore, awayScore })
+26:  });
+27:  return res.json();
+28:};
+29:
+30:const sendMatchResult = async (matchId: string, homeScore: number, awayScore: number) => {
+31:  const res = await fetch('/api/admin/match', {
+32:    method: 'POST',
+33:    headers: { 'Content-Type': 'application/json' },
+34:    body: JSON.stringify({ matchId, homeScore, awayScore })
+35:  });
+36:  return res.json();
+37:};
+38:
+39:const syncAPI = async () => {
+40:  const res = await fetch('/api/admin/sync', { method: 'POST' });
+41:  const json = await res.json();
+42:  if (json.error) throw new Error(json.error);
+43:  return json;
+44:};
+45:
+46:const verifyRoomAPI = async (password: string) => {
+47:  const res = await fetch('/api/verify-room', {
+48:    method: 'POST',
+49:    headers: { 'Content-Type': 'application/json' },
+50:    body: JSON.stringify({ password })
+51:  });
+52:  const json = await res.json();
+53:  if (json.error) throw new Error(json.error);
+54:  return json;
+55:};
+56:
+57:
+58:export default function App() {
+59:  const [isRoomAuthenticated, setIsRoomAuthenticated] = useState(false);
+60:  const [currentUser, setCurrentUser] = useState<User | null>(null);
+61:  const [state, setState] = useState<AppState>({ users: [], matches: [], predictions: [] });
+62:  const [activeTab, setActiveTab] = useState<'matches' | 'ranking' | 'livescore' | 'admin'>('matches');
+63:  const [isLoading, setIsLoading] = useState(true);
+64:
+65:  // Load Data
+66:  const refreshState = async () => {
+67:    const data = await fetchState();
+68:    setState(data);
+69:    
+70:    // Update current user score if necessary
+71:    if (currentUser) {
+72:      const updatedUser = data.users.find(u => u.id === currentUser.id);
+73:      if (updatedUser) setCurrentUser(updatedUser);
+74:    }
+75:  };
+76:
+77:  const [isSyncing, setIsSyncing] = useState(false);
+78:  const [newRoomPassword, setNewRoomPassword] = useState('');
+79:
+80:  useEffect(() => {
+81:    refreshState().then(() => setIsLoading(false));
+82:    // Poll every 10s for real-time vibe
+83:    const interval = setInterval(refreshState, 10000);
+84:    return () => clearInterval(interval);
+85:  }, [currentUser?.id]);
+86:
+87:  const handleShare = () => {
+88:    const rankingUsers = state.users.filter(u => !u.isAdmin);
+89:    const text = `🏆 *BOLÃO TOTAL CORINTHIANS* 🏆\n\n*Ranking Atualizado:*\n${rankingUsers.map((u, i) => `${i + 1}º - *${u.name}* (${u.score} pts)`).join('\n')}\n\nAcesse e faça seus palpites!`;
+90:    navigator.clipboard.writeText(text).then(() => {
+91:      alert('Ranking copiado para a área de transferência! Cole no seu WhatsApp.');
+92:    }).catch(() => {
+93:      alert('Não foi possível copiar. Tente novamente.');
+94:    });
+95:  };
+96:
+97:
+98:  // ROOM AUTH VIEW
+99:  if (!isRoomAuthenticated) {
+100:    return <RoomAuthView onAuthenticated={() => setIsRoomAuthenticated(true)} />;
+101:  }
+102:
+103:  // LOGIN VIEW
+104:  if (!currentUser) {
+105:    return <LoginView onLogin={(u) => setCurrentUser(u)} />;
+106:  }
+107:
+108:  return (
+109:    <div className="min-h-screen bg-zinc-950 text-white pb-20 font-sans flex flex-col overflow-x-hidden w-full">
+110:      {/* Header */}
+111:      <header className="bg-zinc-950 border-b border-zinc-800 sticky top-0 z-30">
+112:        <div className="max-w-3xl mx-auto px-4 py-4 flex items-end justify-between">
+113:          <div className="flex flex-col">
+114:            <span className="text-zinc-500 font-mono text-xs tracking-widest uppercase flex items-center gap-2 mb-1"> <Trophy className="w-3 h-3 text-yellow-400" /> Copa 2026</span>
+115:            <h1 className="text-2xl sm:text-3xl font-black italic tracking-tighter leading-none flex items-center gap-3">
+116:              <img src="https://upload.wikimedia.org/wikipedia/pt/b/b4/Corinthians_simbolo.png" alt="Corinthians" className="w-10 h-10 sm:w-12 sm:h-12 object-contain" />
+117:              <div className="flex flex-col">
+118:                <span>BOLÃO TOTAL</span>
+119:                <span className="text-lg sm:text-xl text-yellow-400">CORINTHIANS</span>
+120:              </div>
+121:            </h1>
+122:          </div>
+123:          <div className="flex items-center gap-4">
+124:            <div className="flex flex-col items-end hidden sm:flex">
+125:              <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest">{currentUser.name}</span>
+126:              <span className="text-sm font-mono font-bold text-yellow-400">{currentUser.score} PTS</span>
+127:            </div>
+128:            <div className="w-10 h-10 bg-yellow-400 rounded-none border-2 border-white flex items-center justify-center font-black text-black text-lg">
+129:              {currentUser.name.charAt(0).toUpperCase()}
+130:            </div>
+131:          </div>
+132:        </div>
+133:      </header>
+134:
+135:      {/* Main Content */}
+136:      <main className="max-w-3xl mx-auto p-4">
+137:        {isLoading ? (
+138:          <div className="animate-pulse space-y-4 pt-4">
+139:            <div className="h-32 bg-zinc-900 rounded-none" />
+140:            <div className="h-32 bg-zinc-900 rounded-none" />
+141:            <div className="h-32 bg-zinc-900 rounded-none" />
+142:          </div>
+143:        ) : (
+144:          <AnimatePresence mode="wait">
+145:            {activeTab === 'matches' && (
+146:              <motion.div key="matches" initial={{opacity:0, y: 10}} animate={{opacity:1, y: 0}} exit={{opacity:0, y: -10}}>
+147:                <div className="mb-6">
+148:                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-[0.2em] mb-1">Fase de Grupos</h2>
+149:                  <h3 className="text-3xl font-black uppercase tracking-tight">Partidas</h3>
+150:                </div>
+151:                <div className="space-y-4">
+152:                  {state.matches.map(match => (
+153:                    <MatchCard 
+154:                      key={match.id} 
+155:                      match={match} 
+156:                      prediction={state.predictions.find(p => p.matchId === match.id && p.userId === currentUser.id)}
+157:                      onSavePrediction={async (hScore, aScore) => {
+158:                        await sendPrediction(currentUser.id, match.id, hScore, aScore);
+159:                        await refreshState();
+160:                      }}
+161:                    />
+162:                  ))}
+163:                </div>
+164:              </motion.div>
+165:            )}
+166:
+167:            {activeTab === 'ranking' && (
+168:              <motion.div key="ranking" initial={{opacity:0, y: 10}} animate={{opacity:1, y: 0}} exit={{opacity:0, y: -10}}>
+169:                <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+170:                  <div>
+171:                    <h2 className="text-4xl font-black italic uppercase leading-none tracking-tight">Leader<br/>Board</h2>
+172:                  </div>
+173:                  <div className="flex flex-col sm:items-end gap-2">
+174:                    <div className="bg-yellow-400 text-black px-3 py-1 rounded-none text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 self-start sm:self-end">
+175:                      Ao Vivo <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+176:                    </div>
+177:                    {currentUser.isAdmin && (
+178:                      <button onClick={handleShare} className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-colors">
+179:                        <Share2 className="w-3.5 h-3.5" /> Compartilhar Ranking
+180:                      </button>
+181:                    )}
+182:                  </div>
+183:                </div>
+184:
+185:                <div className="bg-yellow-400 text-black p-4 sm:p-6 rounded-none flex flex-col gap-6">
+186:                  {state.users.filter(u => !u.isAdmin).map((u, i) => (
+187:                    <div key={u.id} className="flex items-center gap-4 group">
+188:                      <span className={cn("text-4xl sm:text-5xl font-black", i < 3 ? "opacity-100" : "opacity-30")}>
+189:                        {(i + 1).toString().padStart(2, '0')}
+190:                      </span>
+191:                      <div className="flex flex-col border-l-4 border-black pl-4 flex-grow">
+192:                        <span className="text-lg sm:text-xl font-black uppercase flex items-center justify-between">
+193:                          <span>{u.name} {u.id === currentUser.id && <span className="text-[10px] ml-2 px-1.5 py-0.5 bg-black text-yellow-400 align-middle shrink-0">VOCÊ</span>}</span>
+194:                        </span>
+195:                        <span className="text-sm sm:text-base font-mono font-bold tracking-tighter">{u.score} PTS</span>
+196:                      </div>
+197:                    </div>
+198:                  ))}
+199:                  
+200:                  <div className="mt-4 pt-6 border-t border-black/10 pb-4">
+201:                    <p className="text-[10px] font-bold uppercase tracking-widest mb-4">Regras de Pontuação</p>
+202:                    <div className="grid grid-cols-3 gap-2 opacity-80">
+203:                      <div className="text-center">
+204:                        <p className="text-xl sm:text-2xl font-black">100</p>
+205:                        <p className="text-[8px] uppercase font-bold leading-tight">Placar Exato</p>
+206:                      </div>
+207:                      <div className="text-center border-l border-r border-black/10">
+208:                        <p className="text-xl sm:text-2xl font-black">80</p>
+209:                        <p className="text-[8px] uppercase font-bold leading-tight">Vencedor<br/>+ Saldo</p>
+210:                      </div>
+211:                      <div className="text-center">
+212:                        <p className="text-xl sm:text-2xl font-black">50</p>
+213:                        <p className="text-[8px] uppercase font-bold leading-tight">Apenas<br/>Vencedor</p>
+214:                      </div>
+215:                    </div>
+216:                  </div>
+217:                </div>
+218:              </motion.div>
+219:            )}
+220:
+221:            {activeTab === 'livescore' && (
+222:              <motion.div key="livescore" initial={{opacity:0, y: 10}} animate={{opacity:1, y: 0}} exit={{opacity:0, y: -10}}>
+223:                <div className="mb-6">
+224:                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-[0.2em] mb-1">Acompanhe</h2>
+225:                  <h3 className="text-3xl font-black uppercase tracking-tight">Tempo Real</h3>
+226:                </div>
+227:                <div className="space-y-4">
+228:                  {state.matches.map(match => (
+229:                    <div key={match.id} className="bg-zinc-900 border border-zinc-800 p-4 flex flex-col">
+230:                      <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest mb-4">
+231:                        <span className="text-zinc-500">{format(new Date(match.date), "dd/MMM - HH:mm", { locale: ptBR })}</span>
+232:                        <span className={cn(match.status === 'pending' ? 'text-yellow-400' : 'text-zinc-500')}>
+233:                          {match.status === 'pending' ? 'Agendado/Ao Vivo' : 'Encerrado'}
+234:                        </span>
+235:                      </div>
+236:                      <div className="flex items-center justify-between gap-1 sm:gap-4">
+237:                         <div className="flex-1 flex flex-col gap-1 sm:gap-2 items-center text-[10px] sm:text-sm font-black uppercase min-w-0">
+238:                           <span className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center shrink-0">
+239:                             {match.homeFlag.startsWith('http') ? <img src={match.homeFlag} className="w-full h-full object-contain" /> : <span className="text-2xl sm:text-3xl">{match.homeFlag}</span>}
+240:                           </span> 
+241:                           <span className="truncate w-full text-center">{match.homeTeam}</span>
+242:                         </div>
+243:                         <div className="flex items-center gap-1 sm:gap-2 font-mono text-xl sm:text-2xl font-bold bg-zinc-950 px-2 sm:px-4 py-2 sm:py-3 border border-zinc-800 shrink-0">
+244:                           <span>{match.homeScore ?? '-'}</span>
+245:                           <span className="text-zinc-600 text-base sm:text-lg mx-0.5 sm:mx-1">X</span>
+246:                           <span>{match.awayScore ?? '-'}</span>
+247:                         </div>
+248:                         <div className="flex-1 flex flex-col gap-1 sm:gap-2 items-center text-[10px] sm:text-sm font-black uppercase min-w-0">
+249:                           <span className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center shrink-0">
+250:                             {match.awayFlag.startsWith('http') ? <img src={match.awayFlag} className="w-full h-full object-contain" /> : <span className="text-2xl sm:text-3xl">{match.awayFlag}</span>}
+251:                           </span> 
+252:                           <span className="truncate w-full text-center">{match.awayTeam}</span>
+253:                         </div>
+254:                      </div>
+255:                    </div>
+256:                  ))}
+257:                </div>
+258:              </motion.div>
+259:            )}
+260:
+261:             {activeTab === 'admin' && currentUser.isAdmin && (
+262:              <motion.div key="admin" initial={{opacity:0, y: 10}} animate={{opacity:1, y: 0}} exit={{opacity:0, y: -10}}>
+263:                 <div className="mb-6">
+264:                  <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-[0.2em] mb-1">Gerenciamento</h2>
+265:                  <h3 className="text-3xl font-black uppercase tracking-tight">Painel Admin</h3>
+266:                </div>
+267:
+268:                <div className="bg-zinc-900 border border-zinc-800 p-4 sm:p-5 flex flex-col gap-4 mb-6">
+269:                  <div className="flex items-center justify-between">
+270:                    <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Integração Externa</h4>
+271:                    <span className={cn("text-[8px] font-black uppercase tracking-widest px-2 py-1", state.apiConfigured ? "bg-yellow-400 text-black" : "bg-red-500/20 text-red-400")}>
+272:                      {state.apiConfigured ? 'API Ativa' : 'API Ausente'}
+273:                    </span>
+274:                  </div>
+275:                  <button 
+276:                    disabled={isSyncing}
+277:                    onClick={async () => {
+278:                      setIsSyncing(true);
+279:                      try {
+280:                        const res = await syncAPI();
+281:                        await refreshState(); // Recarrega os jogos populados para atualizar a tela
+282:                        alert(res.message);
+283:                      } catch(e:any) {
+284:                        alert("Erro: " + e.message);
+285:                      } finally {
+286:                        setIsSyncing(false);
+287:                      }
+288:                    }}
+289:                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase tracking-wider text-sm py-4 transition-colors disabled:opacity-50"
+290:                  >
+291:                    {isSyncing ? "Sincronizando..." : "Sincronizar Jogos Agora"}
+292:                  </button>
+293:                  <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider text-center">
+294:                    Acesse o menu <b>Account/Profile</b> (geralmente no canto superior direito) no seu painel da API-Football para copiar sua <b>API Key</b>.
+295:                  </p>
+296:                </div>
+297:
+298:                <div className="bg-zinc-900 border border-zinc-800 p-4 sm:p-5 flex flex-col gap-4 mb-6">
+299:                  <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Alterar Senha do App</h4>
+300:                  <div className="flex gap-2">
+301:                    <input 
+302:                      type="text" 
+303:                      value={newRoomPassword}
+304:                      onChange={(e) => setNewRoomPassword(e.target.value)}
+305:                      placeholder="Nova senha de acesso"
+306:                      className="flex-1 bg-zinc-950 border border-zinc-800 px-4 py-3 font-mono text-sm focus:outline-none focus:border-yellow-400 placeholder:text-zinc-600"
+307:                    />
+308:                    <button 
+309:                      onClick={async () => {
+310:                        if (!newRoomPassword.trim()) return;
+311:                        try {
+312:                          await fetch('/api/admin/change-password', {
+313:                            method: 'POST',
+314:                            headers: { 'Content-Type': 'application/json' },
+315:                            body: JSON.stringify({ newPassword: newRoomPassword })
+316:                          });
+317:                          alert("Senha alterada com sucesso!");
+318:                          setNewRoomPassword('');
+319:                        } catch(e:any) {
+320:                          alert("Erro: " + e.message);
+321:                        }
+322:                      }}
+323:                      className="bg-yellow-400 text-black px-4 py-3 font-bold uppercase tracking-wider text-xs"
+324:                    >
+325:                      Salvar
+326:                    </button>
+327:                  </div>
+328:                </div>
+329:
+330:                <div className="space-y-4">
+331:                  {state.matches.filter(m => m.status === 'pending').map(match => (
+332:                    <AdminMatchCard 
+333:                      key={match.id} 
+334:                      match={match} 
+335:                      onSendResult={async (hScore, aScore) => {
+336:                        await sendMatchResult(match.id, hScore, aScore);
+337:                        await refreshState();
+338:                      }}
+339:                    />
+340:                  ))}
+341:                  {state.matches.filter(m => m.status === 'pending').length === 0 && (
+342:                    <div className="text-center p-8 bg-zinc-900 text-zinc-500 font-bold uppercase tracking-widest text-sm rounded-none">
+343:                      Nenhuma partida pendente
+344:                    </div>
+345:                  )}
+346:                </div>
+347:              </motion.div>
+348:            )}
+349:          </AnimatePresence>
+350:        )}
+351:      </main>
+352:
+353:      {/* Bottom Nav Mobile/Desktop */}
+354:      <nav className="fixed bottom-0 w-full bg-zinc-950 border-t border-zinc-800 pb-safe z-40">
+355:        <div className="max-w-3xl mx-auto flex">
+356:           <button 
+357:            onClick={() => setActiveTab('matches')} 
+358:            className={cn("flex-1 py-4 flex flex-col items-center gap-1 transition-colors relative", activeTab === 'matches' ? "text-yellow-400" : "text-zinc-500 hover:text-white")}
+359:          >
+360:            <Calendar className="w-5 h-5" />
+361:            <span className="text-[10px] font-bold tracking-[0.2em] uppercase border-0">Partidas</span>
+362:            {activeTab === 'matches' && <motion.div layoutId="nav-pill" className="absolute top-0 left-0 right-0 h-1 bg-yellow-400" />}
+363:          </button>
+364:          <button 
+365:            onClick={() => setActiveTab('ranking')} 
+366:            className={cn("flex-1 py-4 flex flex-col items-center gap-1 transition-colors relative", activeTab === 'ranking' ? "text-yellow-400" : "text-zinc-500 hover:text-white")}
+367:          >
+368:            <Trophy className="w-5 h-5" />
+369:             <span className="text-[10px] font-bold tracking-[0.2em] uppercase">Ranking</span>
+370:             {activeTab === 'ranking' && <motion.div layoutId="nav-pill" className="absolute top-0 left-0 right-0 h-1 bg-yellow-400" />}
+371:          </button>
+372:          
+373:          <button 
+374:            onClick={() => setActiveTab('livescore')} 
+375:            className={cn("flex-1 py-4 flex flex-col items-center gap-1 transition-colors relative", activeTab === 'livescore' ? "text-yellow-400" : "text-zinc-500 hover:text-white")}
+376:          >
+377:            <Activity className="w-5 h-5" />
+378:             <span className="text-[10px] font-bold tracking-[0.2em] uppercase max-w-[60px] text-center leading-tight truncate">Ao Vivo</span>
+379:             {activeTab === 'livescore' && <motion.div layoutId="nav-pill" className="absolute top-0 left-0 right-0 h-1 bg-yellow-400" />}
+380:          </button>
+381:
+382:          {currentUser.isAdmin && (
+383:            <button 
+384:              onClick={() => setActiveTab('admin')} 
+385:              className={cn("flex-1 py-4 flex flex-col items-center gap-1 transition-colors relative", activeTab === 'admin' ? "text-yellow-400" : "text-zinc-500 hover:text-white")}
+386:            >
+387:              <Settings className="w-5 h-5" />
+388:              <span className="text-[10px] font-bold tracking-[0.2em] uppercase">Admin</span>
+389:              {activeTab === 'admin' && <motion.div layoutId="nav-pill" className="absolute top-0 left-0 right-0 h-1 bg-yellow-400" />}
+390:            </button>
+391:          )}
+392:        </div>
+393:      </nav>
+394:    </div>
+395:  );
+396:}
+397:
+398:// --- COMPONENTS ---
+399:
+400:function RoomAuthView({ onAuthenticated }: { onAuthenticated: () => void }) {
+401:  const [password, setPassword] = useState('');
+402:  const [loading, setLoading] = useState(false);
+403:  const [error, setError] = useState('');
+404:
+405:  const handleSubmit = async (e: React.FormEvent) => {
+406:    e.preventDefault();
+407:    if (!password.trim()) return;
+408:    setLoading(true);
+409:    setError('');
+410:    try {
+411:      await verifyRoomAPI(password);
+412:      onAuthenticated();
+413:    } catch (err: any) {
+414:      setError(err.message || 'Senha incorreta.');
+415:      setLoading(false);
+416:    }
+417:  };
+418:
+419:  return (
+420:    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
+421:      <motion.div initial={{opacity:0, scale:0.95}} animate={{opacity:1, scale:1}} className="max-w-md w-full">
+422:        <div className="text-center mb-10">
+423:           <img src="https://upload.wikimedia.org/wikipedia/pt/b/b4/Corinthians_simbolo.png" alt="Corinthians" className="w-16 h-16 mx-auto mb-4 object-contain" />
+424:           <h1 className="text-3xl font-black italic text-white tracking-tighter mb-2 flex flex-col items-center">
+425:             <span>BOLÃO TOTAL</span>
+426:             <span className="text-yellow-400 text-2xl">CORINTHIANS</span>
+427:           </h1>
+428:           <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">Acesso Restrito</p>
+429:        </div>
+430:        
+431:        <form onSubmit={handleSubmit} className="bg-zinc-900 border border-zinc-800 p-6 flex flex-col gap-4">
+432:           {error && <div className="text-red-400 text-sm font-bold uppercase tracking-widest text-center">{error}</div>}
+433:           <div className="flex flex-col gap-2">
+434:             <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Senha do Grupo</label>
+435:             <input 
+436:               type="password" 
+437:               value={password}
+438:               onChange={e => setPassword(e.target.value)}
+439:               placeholder="Digite a senha..."
+440:               className="bg-zinc-950 border border-zinc-800 text-white p-4 font-bold outline-none focus:border-yellow-400 w-full transition-colors"
+441:             />
+442:           </div>
+443:           
+444:           <button 
+445:             type="submit" 
+446:             disabled={!password.trim() || loading}
+447:             className="w-full mt-2 bg-yellow-400 hover:bg-white text-black font-black uppercase tracking-widest py-4 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+448:           >
+449:             {loading ? 'Verificando...' : 'Entrar na Sala'} <LogIn className="w-4 h-4"/>
+450:           </button>
+451:        </form>
+452:      </motion.div>
+453:    </div>
+454:  )
+455:}
+456:
+457:function LoginView({ onLogin }: { onLogin: (user: User) => void }) {
+458:  const [name, setName] = useState('');
+459:  const [loading, setLoading] = useState(false);
+460:
+461:  const handleSubmit = async (e: React.FormEvent) => {
+462:    e.preventDefault();
+463:    if(!name.trim()) return;
+464:    setLoading(true);
+465:    const data = await loginUser(name.trim());
+466:    onLogin(data.user);
+467:  };
+468:
+469:  return (
+470:    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+471:      <motion.div initial={{opacity:0, scale:0.95}} animate={{opacity:1, scale:1}} className="bg-zinc-900 border border-zinc-800 w-full max-w-sm p-8 relative overflow-hidden">
+472:        <div className="absolute top-0 left-0 w-full h-2 bg-yellow-400" />
+473:        
+474:        <div className="w-16 h-16 bg-zinc-950 border border-zinc-800 flex items-center justify-center mb-6 text-black p-2">
+475:           <img src="https://upload.wikimedia.org/wikipedia/pt/b/b4/Corinthians_simbolo.png" alt="Corinthians" className="w-full h-full object-contain" />
+476:        </div>
+477:        
+478:        <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-tight">Entrar no Bolão</h2>
+479:        <p className="text-zinc-400 text-sm mb-8 font-medium">Digite seu nome ou apelido para participar.</p>
+480:        
+481:        <form onSubmit={handleSubmit} className="space-y-4">
+482:          <div>
+483:            <label className="block text-xs font-bold uppercase tracking-[0.2em] text-zinc-500 mb-2">Seu Nome</label>
+484:            <input 
+485:              autoFocus
+486:              type="text" 
+487:              value={name}
+488:              onChange={(e) => setName(e.target.value)}
+489:              placeholder="Ex: Neymar Jr"
+490:              className="w-full px-4 py-3 bg-zinc-950 border-2 border-zinc-800 text-white focus:outline-none focus:border-yellow-400 transition-all outline-none font-bold placeholder-zinc-700"
+491:            />
+492:          </div>
+493:          <button 
+494:            disabled={loading || !name.trim()}
+495:            type="submit" 
+496:            className="w-full bg-yellow-400 hover:bg-white text-black font-black uppercase text-sm py-4 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+497:          >
+498:            {loading ? 'Entrando...' : (
+499:              <>
+500:               Entrar na Disputa <LogIn className="w-4 h-4" />
+501:              </>
+502:            )}
+503:          </button>
+504:        </form>
+505:        <p className="text-center mt-6 text-xs text-zinc-500 font-bold uppercase tracking-wider">100 pts: Exato • 80 pts: Saldo • 50 pts: Vencedor</p>
+506:      </motion.div>
+507:    </div>
+508:  )
+509:}
+510:
+511:const MatchCard: React.FC<{ match: Match, prediction?: Prediction, onSavePrediction: (h: number, a: number) => void }> = ({ match, prediction, onSavePrediction }) => {
+512:  const isPending = match.status === 'pending';
+513:  const matchDate = new Date(match.date);
+514:  const matchTime = matchDate.getTime();
+515:  const isLocked = Date.now() > matchTime - 20 * 60 * 1000;
+516:  const canPredict = isPending && !isLocked;
+517:
+518:  const [hScore, setHScore] = useState<string>(prediction ? prediction.homeScore.toString() : '0');
+519:  const [aScore, setAScore] = useState<string>(prediction ? prediction.awayScore.toString() : '0');
+520:  const [isEditing, setIsEditing] = useState(!prediction && canPredict);
+521:
+522:  return (
+523:    <div className={cn("bg-zinc-900 border-l-8 flex flex-col relative mb-4", canPredict ? "border-yellow-400" : "border-zinc-700")}>
+524:      
+525:      {/* Header Info */}
+526:      <div className="px-4 py-3 border-b border-zinc-800 flex justify-between items-center">
+527:        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+528:           <Calendar className="w-3.5 h-3.5" />
+529:           {format(matchDate, "dd 'de' MMM • HH:mm", { locale: ptBR })}
+530:        </div>
+531:        <div className={cn("text-[10px] uppercase font-bold tracking-widest px-2 py-0.5", 
+532:           canPredict ? "bg-yellow-400/20 text-yellow-400" : (isPending ? "bg-red-500/10 text-red-400" : "bg-zinc-800 text-zinc-400"))}>
+533:          {canPredict ? 'Aberto' : (isPending ? 'Bloqueado' : 'Finalizado')}
+534:        </div>
+535:      </div>
+536:
+537:      <div className="p-4 sm:p-6 flex flex-col items-center">
+538:        {/* Teams and Inputs */}
+539:        <div className="flex w-full items-center justify-between gap-2 sm:gap-6 mb-6">
+540:           {/* Home Team */}
+541:           <div className="flex-1 flex flex-col items-center min-w-[70px] gap-2">
+542:              <div className="w-10 h-10 sm:w-12 sm:h-12 p-1 sm:p-2 flex items-center justify-center bg-zinc-800 text-3xl sm:text-4xl shrink-0">
+543:                {match.homeFlag.startsWith('http') ? <img src={match.homeFlag} alt={match.homeTeam} className="w-full h-full object-contain" /> : match.homeFlag}
+544:              </div>
+545:              <span className="font-black text-[10px] sm:text-sm uppercase text-center tracking-tight line-clamp-2 sm:line-clamp-1 break-words">{match.homeTeam}</span>
+546:           </div>
+547:
+548:           {/* Score Board */}
+549:           <div className="flex items-center gap-1 sm:gap-4 shrink-0">
+550:             {canPredict ? (
+551:               isEditing ? (
+552:                 <>
+553:                   <input type="number" min="0" max="20" value={hScore} onChange={e=>setHScore(e.target.value)} className="w-[40px] h-[50px] sm:w-[50px] sm:h-[60px] text-center text-2xl sm:text-3xl font-black bg-zinc-800 border-2 border-zinc-700 outline-none focus:border-yellow-400 placeholder-zinc-700 font-mono" placeholder="-" />
+554:                   <span className="text-zinc-600 font-black text-xl">X</span>
+555:                   <input type="number" min="0" max="20" value={aScore} onChange={e=>setAScore(e.target.value)} className="w-[40px] h-[50px] sm:w-[50px] sm:h-[60px] text-center text-2xl sm:text-3xl font-black bg-zinc-800 border-2 border-zinc-700 outline-none focus:border-yellow-400 placeholder-zinc-700 font-mono" placeholder="-" />
+556:                 </>
+557:               ) : (
+558:                 <>
+559:                  <div className="w-[40px] h-[50px] sm:w-[50px] sm:h-[60px] flex items-center justify-center text-2xl sm:text-3xl font-black bg-yellow-400 text-black font-mono">{prediction?.homeScore}</div>
+560:                  <span className="text-zinc-600 font-black text-xl">X</span>
+561:                  <div className="w-[40px] h-[50px] sm:w-[50px] sm:h-[60px] flex items-center justify-center text-2xl sm:text-3xl font-black bg-yellow-400 text-black font-mono">{prediction?.awayScore}</div>
+562:                 </>
+563:               )
+564:             ) : (
+565:               <>
+566:                <div className="w-[40px] h-[50px] sm:w-[50px] sm:h-[60px] flex items-center justify-center text-2xl sm:text-3xl font-black bg-zinc-800 text-zinc-300 font-mono">{prediction?.homeScore ?? match.homeScore ?? '-'}</div>
+567:                <span className="text-zinc-600 font-black text-xl">X</span>
+568:                <div className="w-[40px] h-[50px] sm:w-[50px] sm:h-[60px] flex items-center justify-center text-2xl sm:text-3xl font-black bg-zinc-800 text-zinc-300 font-mono">{prediction?.awayScore ?? match.awayScore ?? '-'}</div>
+569:               </>
+570:             )}
+571:           </div>
+572:
+573:           {/* Away Team */}
+574:           <div className="flex-1 flex flex-col items-center min-w-[70px] gap-2">
+575:              <div className="w-10 h-10 sm:w-12 sm:h-12 p-1 sm:p-2 flex items-center justify-center bg-zinc-800 text-3xl sm:text-4xl shrink-0">
+576:                {match.awayFlag.startsWith('http') ? <img src={match.awayFlag} alt={match.awayTeam} className="w-full h-full object-contain" /> : match.awayFlag}
+577:              </div>
+578:              <span className="font-black text-[10px] sm:text-sm uppercase text-center tracking-tight line-clamp-2 sm:line-clamp-1 break-words">{match.awayTeam}</span>
+579:           </div>
+580:        </div>
+581:
+582:        {/* Action Button */}
+583:        {canPredict && (
+584:          <div className="w-full">
+585:            {isEditing ? (
+586:              <button 
+587:                onClick={async () => {
+588:                  if(hScore !== '' && aScore !== '') {
+589:                    try {
+590:                      await onSavePrediction(parseInt(hScore), parseInt(aScore));
+591:                      setIsEditing(false);
+592:                    } catch(e:any) { alert("Erro: " + e.message); }
+593:                  }
+594:                }}
+595:                disabled={hScore === '' || aScore === ''}
+596:                className="w-full bg-yellow-400 hover:bg-white text-black font-black uppercase tracking-wider text-sm py-4 transition-colors disabled:opacity-50"
+597:              >
+598:                Salvar Palpite
+599:              </button>
+600:            ) : (
+601:              <button onClick={() => setIsEditing(true)} className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase tracking-wider text-sm py-4 transition-colors">
+602:                Editar Palpite
+603:              </button>
+604:            )}
+605:          </div>
+606:        )}
+607:
+608:        {/* Finished State Feedback */}
+609:        {!isPending && prediction && (
+610:          <div className={cn("w-full py-4 px-4 mt-4 flex items-center justify-between text-sm font-bold uppercase tracking-wide", 
+611:            prediction.points === 100 ? "bg-yellow-400 text-black" : 
+612:            prediction.points && prediction.points > 0 ? "bg-zinc-800 text-white border border-zinc-700" : 
+613:            "bg-zinc-900 border border-zinc-800 text-zinc-500"
+614:          )}>
+615:            <div className="flex items-center gap-2">
+616:              Seu palpite: {prediction.homeScore} x {prediction.awayScore}
+617:            </div>
+618:            <div className="flex items-center gap-1 text-lg font-black">
+619:              +{prediction.points} PTS
+620:            </div>
+621:          </div>
+622:        )}
+623:        {!isPending && !prediction && (
+624:          <div className="w-full py-4 px-4 mt-4 bg-zinc-900 border border-zinc-800 text-zinc-500 text-sm font-bold uppercase text-center tracking-widest">
+625:            Sem Palpite
+626:          </div>
+627:        )}
+628:      </div>
+629:    </div>
+630:  )
+631:}
+632:
+633:const AdminMatchCard: React.FC<{ match: Match, onSendResult: (h: number, a: number) => void }> = ({ match, onSendResult }) => {
+634:  const [hScore, setHScore] = useState<string>('0');
+635:  const [aScore, setAScore] = useState<string>('0');
+636:
+637:  return (
+638:    <div className="bg-zinc-900 border border-zinc-800 p-4 sm:p-5 flex flex-col gap-4">
+639:      <div className="flex justify-between items-center text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+640:        <span>Definir Resultado</span>
+641:        <span>{format(new Date(match.date), "dd/MMM - HH:mm", { locale: ptBR })}</span>
+642:      </div>
+643:
+644:       <div className="flex w-full items-center justify-between gap-1 sm:gap-6 py-2">
+645:         {/* Home Team */}
+646:         <div className="flex-1 flex flex-col items-center min-w-[60px] gap-2">
+647:           <div className="w-8 h-8 sm:w-12 sm:h-12 p-1 sm:p-2 flex items-center justify-center bg-zinc-800 text-2xl sm:text-4xl shrink-0">
+648:             {match.homeFlag.startsWith('http') ? <img src={match.homeFlag} className="w-full h-full object-contain" alt={match.homeTeam} /> : match.homeFlag}
+649:           </div> 
+650:           <span className="font-black text-[10px] sm:text-sm uppercase text-center tracking-tight line-clamp-2 sm:line-clamp-1 break-words leading-tight">{match.homeTeam}</span>
+651:         </div>
+652:         {/* Inputs */}
+653:          <div className="flex items-center gap-1 sm:gap-4 shrink-0">
+654:             <input type="number" min="0" value={hScore} onChange={e=>setHScore(e.target.value)} className="w-[35px] h-[45px] sm:w-[50px] sm:h-[60px] font-mono text-center text-xl sm:text-3xl font-black bg-zinc-950 border-2 border-zinc-700 outline-none focus:border-yellow-400 placeholder-zinc-700" placeholder="-" />
+655:             <span className="text-zinc-600 font-black text-lg sm:text-xl">X</span>
+656:             <input type="number" min="0" value={aScore} onChange={e=>setAScore(e.target.value)} className="w-[35px] h-[45px] sm:w-[50px] sm:h-[60px] font-mono text-center text-xl sm:text-3xl font-black bg-zinc-950 border-2 border-zinc-700 outline-none focus:border-yellow-400 placeholder-zinc-700" placeholder="-" />
+657:          </div>
+658:          {/* Away Team */}
+659:         <div className="flex-1 flex flex-col items-center min-w-[60px] gap-2">
+660:           <div className="w-8 h-8 sm:w-12 sm:h-12 p-1 sm:p-2 flex items-center justify-center bg-zinc-800 text-2xl sm:text-4xl shrink-0">
+661:             {match.awayFlag.startsWith('http') ? <img src={match.awayFlag} className="w-full h-full object-contain" alt={match.awayTeam} /> : match.awayFlag}
+662:           </div> 
+663:           <span className="font-black text-[10px] sm:text-sm uppercase text-center tracking-tight line-clamp-2 sm:line-clamp-1 break-words leading-tight">{match.awayTeam}</span>
+664:         </div>
+665:       </div>
+666:
+667:      <button 
+668:        onClick={() => { if(hScore !== '' && aScore !== '') onSendResult(parseInt(hScore), parseInt(aScore)); }}
+669:        disabled={hScore === '' || aScore === ''}
+670:        className="w-full mt-2 bg-yellow-400 hover:bg-white disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-black uppercase tracking-wider text-sm py-4 transition-colors flex items-center justify-center gap-2"
+671:      >
+672:        Encerrar Partida <ChevronRight className="w-4 h-4"/>
+673:      </button>
+674:
+675:    </div>
+676:  )
+677:}
+678:
