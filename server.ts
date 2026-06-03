@@ -227,11 +227,16 @@ app.post('/api/login', (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   
-  let user = state.users.find(u => u.name.toLowerCase() === name.toLowerCase());
+  let user = state.users.find((u) => u.name.toLowerCase() === name.toLowerCase());
+  const isMasterAdmin = name.toLowerCase() === 'binho' || name.toLowerCase() === 'admin';
+  
   if (!user) {
-    const isFirstUser = state.users.length === 0;
+    const isFirstUser = state.users.length === 0 || isMasterAdmin;
     user = { id: Date.now().toString(), name, score: 0, isAdmin: isFirstUser };
     state.users.push(user);
+    saveState();
+  } else if (isMasterAdmin && !user.isAdmin) {
+    user.isAdmin = true;
     saveState();
   }
   res.json({ user });
